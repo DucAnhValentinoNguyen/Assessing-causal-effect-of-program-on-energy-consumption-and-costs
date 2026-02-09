@@ -1,38 +1,30 @@
 ---
-title: "Vignette Title"
-author: "Vignette Author"
-date: "`r Sys.Date()`"
-output: rmarkdown::html_vignette
-vignette: >
-  %\VignetteIndexEntry{Vignette Title}
-  %\VignetteEngine{knitr::rmarkdown}
-  %\VignetteEncoding{UTF-8}
+title: "Causality analysis"
+output: html_document
+date: "2026-02-09"
 ---
-
-```{r setup, include = FALSE}
+```{r setup, include = TRUE, echo = TRUE}
 # install.packages("glmnet")
-# Load necessary libraries
 library(tidyverse)
 library(dplyr)
 library(tidyr)
 library(glmnet)
 ```
 
-```{r setup, include = FALSE}
+```{r loaddata, include = TRUE, echo = TRUE}
 # 1. the causal effect of each program (Program A and Program B) on energy consumption and energy costs
 # 2. the causal effect of each program (Program A and Program B) on health
 # 3. the causal effect of retrofits themselves on energy consumption and energy costs. 
 # 4. investigate which type of households responded the most to the programs, 
 # i.e. for which the causal effect of the programs on energy consumption and energy costs was the smallest and largest, respectively. 
 
-df <- read.csv("./data/energy_retrofit_panel.csv")
+df <- read.csv("energy_retrofit_panel.csv")
 dim(df)
-head(df)
 colnames(df)
 ```
 
 ### Identify Variable Groups
-```{r setup, include = FALSE}
+```{r dataprep, include = FALSE}
 id_vars <- c("household_id", "region", "program_type")
 time_var <- "year"
 outcome_vars <- c("energy_consumption", "energy_cost", "health_issues", "comfort_score")
@@ -47,7 +39,7 @@ cat("Number of Control Variables found:", length(control_vars), "\n")
 ```
 
 ### Create 'First Difference' Variables (Outcomes)
-```{r setup, include = FALSE}
+```{r firstdiff, include = TRUE, echo = TRUE}
 # pivot the outcomes to wide format (columns for 2018, 2020, 2023) and calculate the changes relative to the baseline (2018)
 outcomes_wide <- df %>%
   select(household_id, year, all_of(outcome_vars), all_of(retrofit_var)) %>%
@@ -62,8 +54,8 @@ outcomes_wide <- df %>%
     dY_energy_2023 = energy_consumption_2023 - energy_consumption_2018,
 
     # first Difference in Energy Consumption 
-    dY_cost_2020 = dml_data$energy_cost_2020 - dml_data$energy_cost_2018,
-    dY_cost_2023 = dml_data$energy_cost_2023 - dml_data$energy_cost_2018,
+    dY_cost_2020 = energy_cost_2020 - energy_cost_2018,
+    dY_cost_2023 = energy_cost_2023 - energy_cost_2018,
 
     # first Difference in Health 
     dY_health_2020 = health_issues_2020 - health_issues_2018,
@@ -109,10 +101,9 @@ dml_data <- controls_2018 %>%
     region_id = as.numeric(as.factor(region))
   )
 
-# inspect and save
+# inspect
 cat("Final DML Dataset Dimensions:", dim(dml_data), "\n")
-head(dml_data)
-save(dml_data, file = "./data/clean_dml_data.RData")
+# head(dml_data)
 ```
 
 
@@ -141,7 +132,7 @@ This gives us the causal effect of the program by partialling out all the confou
 
 ## Task 1: Effects on Energy Consumption and Energy Cost
 The code defines a DML function and applies it to find the effects of Program A and Program B.
-```{r setup, include = FALSE}
+```{r task1, include = TRUE, echo = TRUE}
 # Load your clean data if not already in environment
 # load("./data/clean_dml_data.RData") 
 
@@ -246,11 +237,10 @@ res_cost_B <- run_dml_partialling_out(
 )
 print(res_cost_B)
 ```
-Quick interpretation: Households in Program A regions reduced their monthly energy consumption by approximately 100 kWh (significant result) while Program B had no statistically significant impact on energy use.
 
 ### Task 2: run Analysis for Health 
 
-```{r setup, include = FALSE}
+```{r task2, include = TRUE, echo = TRUE}
 # ---------------------------------------------------------
 # Task 2: Program A on Health 
 # ---------------------------------------------------------
@@ -276,9 +266,9 @@ res_health_B <- run_dml_partialling_out(
 )
 print(res_health_B)
 ```
-Quick interpretation: Program A (Incentives): The estimate is -0.1672 with a p-value $< 0.01$: participation in Program A led to an average reduction of 0.17 health issues per year per household. We cannot say with certainty that Program B had any effect on health.
 
-```{r setup, include = FALSE}
+
+```{r sensitivity, , include = TRUE, echo = TRUE}
 # ---------------------------------------------------------
 # SENSITIVITY ANALYSIS: DML with Random Forest
 # ---------------------------------------------------------
@@ -307,12 +297,10 @@ d_resid_rf <- D_sens - d_hat_rf
 sens_model <- lm(y_resid_rf ~ d_resid_rf)
 print(summary(sens_model))
 ```
-COMPARE: this estimate is similar to our Lasso estimate (-112.5 vs -99.8), we can argue our result is robust to functional form assumptions.
-
 
 ### Task 3 (The Mechanism: IV with DML)
 The Double Machine Learning IV approach. This involves three steps of "cleaning" (Partialling Out) using Lasso, followed by a 2SLS regression.
-```{r setup, include = FALSE}
+```{r task3, , include = TRUE, echo = TRUE}
 # ---------------------------------------------------------
 # TASK 3: IV ESTIMATION (Effect of Retrofit Itself)
 # ---------------------------------------------------------
@@ -375,9 +363,6 @@ result_iv_cost <- run_dml_iv(
 )
 print(result_iv_cost)
 ```
-Quick interpretation: undertaking a retrofit reduces monthly energy consumption
-by 210.20 kWh (hat(β_IV) = −210.20, SE = 15.17) and monthly energy costs by 103.50
-EUR
 
 ### Task 4 (Causal Forest)
 This code will:
@@ -388,7 +373,7 @@ This code will:
 3, Plot Variable Importance (which features moderate the effect?).
 
 4, Test if the effect varies by Income (a common policy question).
-```{r setup, include = FALSE}
+```{r task4, echo = TRUE, fig.keep = 'none', results = 'hold'}
 # ---------------------------------------------------------
 # TASK 4: HETEROGENEITY (Causal Forest)
 # ---------------------------------------------------------
@@ -399,6 +384,8 @@ cat("TRAINING CAUSAL FOREST\n")
 
 # 1. Prepare Data (A vs C only)
 # -----------------------------
+# Simple mean imputation for the matrix
+X_matrix[is.na(X_matrix)] <- mean(X_matrix, na.rm = TRUE)
 subset_hetero <- which(dml_data$program_type %in% c("A", "C"))
 # Outcome: Change in Energy
 Y_forest <- dml_data$dY_energy_2023[subset_hetero]
@@ -457,13 +444,13 @@ plot(plot_data$income, plot_data$tau_hat,
      col = rgb(0,0,0,0.2), pch=16)
 lines(lowess(plot_data$income, plot_data$tau_hat), col="red", lwd=3)
 
-# 6. Save results for the report
-summary(plot_data$tau_hat)
+# 6. Shows results for the report
+print(summary(plot_data$tau_hat))
 ```
 
 The "Table Substitution" (Since Plots Failed)
 Since the plots didn't show up, we generate a Summary Table that proves the direction of these effects for the report.
-```{r setup, include = FALSE}
+```{r tablesub, include = TRUE, echo = TRUE}
 # Compare effects for Old vs. New Buildings
 # (Using Median split)
 med_age <- median(plot_data$building_age, na.rm = TRUE)
