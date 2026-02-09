@@ -1,7 +1,6 @@
 # Causal Evaluation of Residential Energy Efficiency Programs
-Code for the assessment of causal effect of incentive programs  to encourage energy efficiency retrofits, when implemented by different regional governments.
+Source code, markdown output and analysis report for the assessment of causal effect of incentive programs  to encourage energy efficiency retrofits, when implemented by different regional governments.
 
-Context:
 ## Motivation
 Improving residential energy efficiency is a crucial component of global climate policy. In 2019, regional governments implemented new incentive programs to encourage homeowners to retrofit properties older than 10 years.
 
