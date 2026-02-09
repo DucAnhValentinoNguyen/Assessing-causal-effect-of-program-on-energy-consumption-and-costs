@@ -18,7 +18,7 @@ library(glmnet)
 # 4. investigate which type of households responded the most to the programs, 
 # i.e. for which the causal effect of the programs on energy consumption and energy costs was the smallest and largest, respectively. 
 
-df <- read.csv("energy_retrofit_panel.csv")
+df <- read.csv("./data/energy_retrofit_panel.csv")
 dim(df)
 colnames(df)
 ```
