@@ -11,7 +11,6 @@ vignette: >
 
 ```{r setup, include = FALSE}
 # install.packages("glmnet")
-
 # Load necessary libraries
 library(tidyverse)
 library(dplyr)
@@ -19,47 +18,37 @@ library(tidyr)
 library(glmnet)
 ```
 
-
 ```{r setup, include = FALSE}
-
 # 1. the causal effect of each program (Program A and Program B) on energy consumption and energy costs
 # 2. the causal effect of each program (Program A and Program B) on health
 # 3. the causal effect of retrofits themselves on energy consumption and energy costs. 
 # 4. investigate which type of households responded the most to the programs, 
 # i.e. for which the causal effect of the programs on energy consumption and energy costs was the smallest and largest, respectively. 
 
-# 1. Load the Data
-# ---------------------------------------------------------
 df <- read.csv("./data/energy_retrofit_panel.csv")
 dim(df)
 head(df)
 colnames(df)
 ```
 
-
+### Identify Variable Groups
 ```{r setup, include = FALSE}
-# 2. Identify Variable Groups
-# ---------------------------------------------------------
-# Based on your dataset structure
 id_vars <- c("household_id", "region", "program_type")
 time_var <- "year"
 outcome_vars <- c("energy_consumption", "energy_cost", "health_issues", "comfort_score")
 # retrofit_type is the endogenous treatment for Task 3
 retrofit_var <- "retrofit_type" 
 
-# All other variables are baseline controls (X)
-# We exclude the ID, Time, Outcome, and Retrofit variables to get the list of Controls
+# all other variables are baseline controls (X)
+# exclude the ID, Time, Outcome, and Retrofit variables to get the list of Controls
 all_cols <- colnames(df)
 control_vars <- setdiff(all_cols, c(id_vars, time_var, outcome_vars, retrofit_var))
 cat("Number of Control Variables found:", length(control_vars), "\n")
 ```
 
+### Create 'First Difference' Variables (Outcomes)
 ```{r setup, include = FALSE}
-# 3. Create 'First Difference' Variables (Outcomes)
-# ---------------------------------------------------------
-# We pivot the outcomes to wide format (columns for 2018, 2020, 2023)
-# and calculate the changes relative to the baseline (2018).
-
+# pivot the outcomes to wide format (columns for 2018, 2020, 2023) and calculate the changes relative to the baseline (2018)
 outcomes_wide <- df %>%
   select(household_id, year, all_of(outcome_vars), all_of(retrofit_var)) %>%
   pivot_wider(
@@ -68,27 +57,31 @@ outcomes_wide <- df %>%
     names_sep = "_"
   ) %>%
   mutate(
-    # First Difference in Energy Consumption (Main Outcome)
+    # first Difference in Energy Consumption 
     dY_energy_2020 = energy_consumption_2020 - energy_consumption_2018,
     dY_energy_2023 = energy_consumption_2023 - energy_consumption_2018,
-    
-    # First Difference in Health (Secondary Outcome)
+
+    # first Difference in Energy Consumption 
+    dY_cost_2020 = dml_data$energy_cost_2020 - dml_data$energy_cost_2018,
+    dY_cost_2023 = dml_data$energy_cost_2023 - dml_data$energy_cost_2018,
+
+    # first Difference in Health 
     dY_health_2020 = health_issues_2020 - health_issues_2018,
     dY_health_2023 = health_issues_2023 - health_issues_2018,
     
-    # Change in Retrofit Status (Endogenous Treatment for Task 3)
-    # We define "Retrofitted" as having a type > 0.
-    # We check if they switched from 0 (No) to something else.
+    # change in Retrofit Status (Endogenous Treatment for Task 3)
+    # define "Retrofitted" as having a type > 0.
+    # check if they switched from 0 (No) to something else.
     is_retrofitted_2018 = ifelse(retrofit_type_2018 > 0, 1, 0),
     is_retrofitted_2020 = ifelse(retrofit_type_2020 > 0, 1, 0),
     is_retrofitted_2023 = ifelse(retrofit_type_2023 > 0, 1, 0),
     
-    # The 'treatment' for IV is the CHANGE in retrofit status
+    # the 'treatment' for IV is the CHANGE in retrofit status
     d_retrofit_20_18 = is_retrofitted_2020 - is_retrofitted_2018,
     d_retrofit_23_18 = is_retrofitted_2023 - is_retrofitted_2018
   )
 
-# 4. Prepare Baseline Controls (X Matrix)
+# prepare Baseline Controls (X Matrix)
 # ---------------------------------------------------------
 # We take the 2018 slice of the data for the controls.
 # Note: The raw data has NAs for controls in 2020/2023, so we MUST use 2018.
@@ -97,14 +90,13 @@ controls_2018 <- df %>%
   filter(year == 2018) %>%
   select(all_of(id_vars), all_of(control_vars))
 
-# Check if there are missing values in controls (imputation might be needed)
-# For now, we'll just check.
+# check if there are missing values in controls (imputation might be needed)
 na_counts <- colSums(is.na(controls_2018))
 if(sum(na_counts) > 0) {
   cat("Warning: Missing values detected in controls. Consider imputation if meaningful.\n")
 }
 
-# 5. Merge to Create Final DML Dataset
+# merge to Create Final DML Dataset
 # ---------------------------------------------------------
 dml_data <- controls_2018 %>%
   left_join(outcomes_wide, by = "household_id") %>%
@@ -117,26 +109,24 @@ dml_data <- controls_2018 %>%
     region_id = as.numeric(as.factor(region))
   )
 
-# 6. Save or Inspect
-# ---------------------------------------------------------
+# inspect and save
 cat("Final DML Dataset Dimensions:", dim(dml_data), "\n")
 head(dml_data)
-
-# Save for later use
-save(dml_data, file = "clean_dml_data.RData")
+save(dml_data, file = "./data/clean_dml_data.RData")
 ```
 
 
-Task 1 (Program A Effect): Estimate the causal effect of living in a "Program A" region vs. "Control" on energy consumption.
+Task 1 (Program A Effect): Estimate the causal effect of living in a "Program A" region vs. "Control" on energy consumption and costs.
+(Program B Effect): Do the same for "Program B".
 
-Task 2 (Program B Effect): Do the same for "Program B".
+Task 2 (Program A Effect): Estimate the causal effect of living in a "Program A" region vs. "Control" on health.
+(Program B Effect): Do the same for "Program B".
 
 Task 3 (The Mechanism): Estimate the effect of the retrofit itself (not just the program) using Instrumental Variables (IV).
 
 Task 4 (Heterogeneity): See who benefits the most (e.g., do low-income households save more?).
 
-
-Double Machine Learning (DML) with the "Partialling Out" approach (also known as Robinson's transformation). 
+Approach: Double Machine Learning (DML) with the Partialling Out approach (also known as Robinson's transformation). 
 This is the standard way to get a clean causal coefficient ($\beta$) in a linear setting while using Lasso to control for high-dimensional 
 confounders ($X$).
 
@@ -146,15 +136,14 @@ Calculate the residuals (what the controls can't explain).
 Predict the Treatment ($D$): Use Lasso to predict whether a household is in Region A/B based on baseline characteristics ($X$). 
 Calculate the residuals (the "surprise" variation in treatment).
 Clean Regression: Regress the outcome residuals on the treatment residuals. 
-By the Frisch-Waugh-Lovell theorem, this gives you the causal effect of the program, "partialling out" all the confounding factors.
+This gives us the causal effect of the program by partialling out all the confounding factors with the Frisch-Waugh-Lovell theorem. 
 
 
-### First let us do Task 1 and 2 (ITT)
-The code defines a reusable DML function and applies it to find the effects of Program A and Program B.
-
+## Task 1: Effects on Energy Consumption and Energy Cost
+The code defines a DML function and applies it to find the effects of Program A and Program B.
 ```{r setup, include = FALSE}
 # Load your clean data if not already in environment
-# load("clean_dml_data.RData") 
+# load("./data/clean_dml_data.RData") 
 
 # ---------------------------------------------------------
 # 1. Prepare Matrices for glmnet
@@ -177,7 +166,7 @@ D_A <- dml_data$D_A
 D_B <- dml_data$D_B
 
 # ---------------------------------------------------------
-# 2. Define the DML "Partialling Out" Function
+# 2. Define the DML "(Partialling Out) Function
 # ---------------------------------------------------------
 run_dml_partialling_out <- function(Y, D, X) {
   
@@ -192,7 +181,7 @@ run_dml_partialling_out <- function(Y, D, X) {
   # ---------------------------------
   # Note: Even though D is binary, we often use linear Lasso (family="gaussian") 
   # for partialling out in DML papers (Chernozhukov et al.), but "binomial" is also fine.
-  # We'll use gaussian for stability in obtaining residuals.
+  # We use gaussian for stability in obtaining residuals.
   cat("  Fitting Lasso for Treatment D...\n")
   cv_d <- cv.glmnet(X, D, alpha = 1, family = "gaussian") 
   d_hat <- predict(cv_d, newx = X, s = "lambda.min")
@@ -200,7 +189,7 @@ run_dml_partialling_out <- function(Y, D, X) {
   
   # Step 3: OLS on Residuals (Y_resid ~ D_resid)
   # ---------------------------------
-  cat("  Running final OLS on residuals...\n")
+  cat("Running final OLS on residuals...\n")
   final_model <- lm(y_resid ~ d_resid)
   
   # Return summary
@@ -213,57 +202,122 @@ run_dml_partialling_out <- function(Y, D, X) {
 # To estimate the effect of A vs Control, we typically drop Group B 
 # to keep the comparison clean (A vs C).
 
-cat("\n--- ESTIMATING EFFECT OF PROGRAM A (Energy) ---\n")
+cat("ESTIMATING EFFECT OF PROGRAM A (Energy Consumption)\n")
 subset_A <- which(dml_data$program_type %in% c("A", "C"))
-
-result_A <- run_dml_partialling_out(
+res_consum_A <- run_dml_partialling_out(
   Y = Y_energy[subset_A],
   D = D_A[subset_A],
   X = X_matrix[subset_A, ]
 )
-print(result_A)
+print(res_consum_A)
 
 
 # ---------------------------------------------------------
 # 4. Run Analysis for Program B (exclude Program A regions)
 # ---------------------------------------------------------
-cat("\n--- ESTIMATING EFFECT OF PROGRAM B (Energy) ---\n")
+cat("ESTIMATING EFFECT OF PROGRAM B (Energy Consumption)\n")
 subset_B <- which(dml_data$program_type %in% c("B", "C"))
-
-result_B <- run_dml_partialling_out(
+res_consum_B <- run_dml_partialling_out(
   Y = Y_energy[subset_B],
   D = D_B[subset_B],
   X = X_matrix[subset_B, ]
 )
-print(result_B)
+print(res_consum_B)
 
 # ---------------------------------------------------------
-# 5. Run Analysis for Health (Secondary Outcome)
+# Effect of Programs on Energy COSTS
 # ---------------------------------------------------------
-# Repeat the logic for health outcomes if required by instructions
-cat("\n--- ESTIMATING EFFECT OF PROGRAM A (Health) ---\n")
+# Define Y vector for costs
+Y_cost <- dml_data$dY_cost_2023
+cat("ESTIMATING EFFECT OF PROGRAM A (Energy Costs)\n")
+# Re-using the function we defined earlier
+res_cost_A <- run_dml_partialling_out(
+  Y = Y_cost[subset_A], 
+  D = D_A[subset_A], 
+  X = X_matrix[subset_A, ]
+)
+print(res_cost_A)
+
+cat("ESTIMATING EFFECT OF PROGRAM B (Energy Costs)\n")
+res_cost_B <- run_dml_partialling_out(
+  Y = Y_cost[subset_B], 
+  D = D_B[subset_B], 
+  X = X_matrix[subset_B, ]
+)
+print(res_cost_B)
+```
+Quick interpretation: Households in Program A regions reduced their monthly energy consumption by approximately 100 kWh (significant result) while Program B had no statistically significant impact on energy use.
+
+### Task 2: run Analysis for Health 
+
+```{r setup, include = FALSE}
+# ---------------------------------------------------------
+# Task 2: Program A on Health 
+# ---------------------------------------------------------
+cat("ESTIMATING EFFECT OF PROGRAM A (Health)\n")
 Y_health <- dml_data$dY_health_2023
-
 result_health_A <- run_dml_partialling_out(
   Y = Y_health[subset_A],
   D = D_A[subset_A],
   X = X_matrix[subset_A, ]
 )
 print(result_health_A)
+
+# ---------------------------------------------------------
+# Task 2: Program B on Health 
+# ---------------------------------------------------------
+cat("ESTIMATING EFFECT OF PROGRAM B (Health)\n")
+# We only did A last time. Let's check B.
+Y_health <- dml_data$dY_health_2023
+res_health_B <- run_dml_partialling_out(
+  Y = Y_health[subset_B],
+  D = D_B[subset_B],
+  X = X_matrix[subset_B, ]
+)
+print(res_health_B)
 ```
+Quick interpretation: Program A (Incentives): The estimate is -0.1672 with a p-value $< 0.01$: participation in Program A led to an average reduction of 0.17 health issues per year per household. We cannot say with certainty that Program B had any effect on health.
+
+```{r setup, include = FALSE}
+# ---------------------------------------------------------
+# SENSITIVITY ANALYSIS: DML with Random Forest
+# ---------------------------------------------------------
+# Goal: Check if the effect (-99.8) holds if we use a non-linear model (Random Forest) to control for confounders instead of Lasso.
+# install.packages("randomForest")
+library(randomForest)
+
+# We focus on the main result: Program A on Energy Consumption
+subset_sens <- which(dml_data$program_type %in% c("A", "C"))
+Y_sens <- dml_data$dY_energy_2023[subset_sens]
+D_sens <- dml_data$D_A[subset_sens]
+X_sens <- X_matrix[subset_sens, ]
+
+cat("SENSITIVITY CHECK: DML with Random Forest\n")
+# Step 1: RF for Outcome (Y ~ X)
+set.seed(123)
+rf_y <- randomForest(x = X_sens, y = Y_sens, ntree = 100)
+y_hat_rf <- predict(rf_y, X_sens)
+y_resid_rf <- Y_sens - y_hat_rf
+# Step 2: RF for Treatment (D ~ X)
+set.seed(123)
+rf_d <- randomForest(x = X_sens, y = D_sens, ntree = 100)
+d_hat_rf <- predict(rf_d, X_sens)
+d_resid_rf <- D_sens - d_hat_rf
+# Step 3: OLS on Residuals
+sens_model <- lm(y_resid_rf ~ d_resid_rf)
+print(summary(sens_model))
+```
+COMPARE: this estimate is similar to our Lasso estimate (-112.5 vs -99.8), we can argue our result is robust to functional form assumptions.
+
 
 ### Task 3 (The Mechanism: IV with DML)
-the Double Machine Learning IV approach. This involves three steps of "cleaning" (Partialling Out) using Lasso, followed by a 2SLS regression.
-
+The Double Machine Learning IV approach. This involves three steps of "cleaning" (Partialling Out) using Lasso, followed by a 2SLS regression.
 ```{r setup, include = FALSE}
 # ---------------------------------------------------------
 # TASK 3: IV ESTIMATION (Effect of Retrofit Itself)
 # ---------------------------------------------------------
-
-# We focus on the "A vs C" subsample because Program B did not work 
-# (and thus would be a "weak instrument").
+# We focus on the "A vs C" subsample because Program B did not work (and thus would be a "weak instrument").
 subset_iv <- which(dml_data$program_type %in% c("A", "C"))
-
 # Define Variables for this subset
 Y_iv <- dml_data$dY_energy_2023[subset_iv]       # Outcome: Change in Energy
 D_iv <- dml_data$d_retrofit_23_18[subset_iv]     # Endogenous Treatment: Did they Retrofit?
@@ -272,51 +326,61 @@ X_iv <- X_matrix[subset_iv, ]                    # Controls
 
 # Function: DML for Instrumental Variables
 run_dml_iv <- function(Y, D, Z, X) {
-  
   # Step 1: Partial out X from Outcome Y
   cat("  1. Lasso Y ~ X (Outcome)...\n")
   cv_y <- cv.glmnet(X, Y, alpha = 1, family = "gaussian")
   y_hat <- predict(cv_y, newx = X, s = "lambda.min")
   y_resid <- Y - y_hat
-  
   # Step 2: Partial out X from Endogenous Treatment D
   cat("  2. Lasso D ~ X (Endogenous Treatment)...\n")
   cv_d <- cv.glmnet(X, D, alpha = 1, family = "gaussian")
   d_hat_x <- predict(cv_d, newx = X, s = "lambda.min")
   d_resid <- D - d_hat_x
-  
   # Step 3: Partial out X from Instrument Z
   cat("  3. Lasso Z ~ X (Instrument)...\n")
   cv_z <- cv.glmnet(X, Z, alpha = 1, family = "gaussian")
   z_hat_x <- predict(cv_z, newx = X, s = "lambda.min")
   z_resid <- Z - z_hat_x
-  
   # Step 4: 2SLS on Residuals
   # (Regress D_resid on Z_resid to get predicted D_resid_hat, then Y_resid on that)
-  
   # First Stage: Effect of Instrument on Treatment (Compliance)
   first_stage <- lm(d_resid ~ z_resid)
   cat("\n  --- First Stage Summary (Instrument Strength) ---\n")
   print(summary(first_stage)$coefficients)
-  
   # Get fitted values from first stage
   d_resid_fitted <- first_stage$fitted.values
-  
   # Second Stage: Effect of Fitted Treatment on Outcome
   iv_model <- lm(y_resid ~ d_resid_fitted)
-  
   return(summary(iv_model))
 }
-
 # Run the IV Analysis
-cat("\n--- ESTIMATING CAUSAL EFFECT OF RETROFIT (IV) ---\n")
+# ---------------------------------------------------------
+# Effect of Retrofit Itself on Energy CONSUMPTIONS (IV)
+# ---------------------------------------------------------
+cat("ESTIMATING CAUSAL EFFECT OF RETROFIT (IV) on ENERGY CONSUMPTIONS\n")
 result_iv <- run_dml_iv(Y_iv, D_iv, Z_iv, X_iv)
 print(result_iv)
+
+# ---------------------------------------------------------
+# Effect of Retrofit Itself on Energy COSTS (IV)
+# ---------------------------------------------------------
+cat("ESTIMATING CAUSAL EFFECT OF RETROFIT (IV) on ENERGY COSTS\n")
+# Using Program A as instrument, just like before
+# We use the same subset (A vs C) and same D and Z
+result_iv_cost <- run_dml_iv(
+  Y = Y_cost[subset_A],      # NEW Outcome (Costs)
+  D = D_iv,                  # Same Treatment (Retrofit)
+  Z = Z_iv,                  # Same Instrument (Program A)
+  X = X_iv                   # Same Controls
+)
+print(result_iv_cost)
 ```
+Quick interpretation: undertaking a retrofit reduces monthly energy consumption
+by 210.20 kWh (hat(β_IV) = −210.20, SE = 15.17) and monthly energy costs by 103.50
+EUR
 
-Task 4 (Causal Forest)
+### Task 4 (Causal Forest)
 This code will:
-
 1, Train a Causal Forest on the "Program A vs Control" data.
 
 2, Calculate the CATE (Conditional Average Treatment Effect) for every household.
@@ -324,38 +388,30 @@ This code will:
 3, Plot Variable Importance (which features moderate the effect?).
 
 4, Test if the effect varies by Income (a common policy question).
-
 ```{r setup, include = FALSE}
 # ---------------------------------------------------------
 # TASK 4: HETEROGENEITY (Causal Forest)
 # ---------------------------------------------------------
-
 # Install 'grf' if you haven't already. It's the gold standard for this.
 if(!require(grf)) install.packages("grf")
 library(grf)
-
-cat("\n--- TRAINING CAUSAL FOREST ---\n")
+cat("TRAINING CAUSAL FOREST\n")
 
 # 1. Prepare Data (A vs C only)
 # -----------------------------
 subset_hetero <- which(dml_data$program_type %in% c("A", "C"))
-
 # Outcome: Change in Energy
 Y_forest <- dml_data$dY_energy_2023[subset_hetero]
-
 # Treatment: Program A Assignment (ITT)
 # (We look at heterogeneity of the PROGRAM effect)
 D_forest <- dml_data$D_A[subset_hetero]
-
 # Controls: The X matrix
 X_forest <- X_matrix[subset_hetero, ]
 
 # 2. Run Causal Forest
 # -----------------------------
-# tune.parameters = "all" ensures the best model, but takes a minute.
-# If it's too slow, remove that argument.
+# tune.parameters = "all" ensures the best model, but takes a minute
 cf <- causal_forest(X_forest, Y_forest, D_forest, tune.parameters = "all")
-
 cat("Causal Forest Trained.\n")
 
 # 3. Assess Heterogeneity
@@ -366,12 +422,11 @@ print(test_cal)
 
 # 4. Variable Importance
 # -----------------------------
-# Which variables determine who saves the most energy?
+# Variables selection: which variables determine who saves the most energy?
 var_imp <- variable_importance(cf)
 # Add variable names
 var_imp_df <- data.frame(variable = colnames(X_forest), importance = var_imp) %>%
   arrange(desc(importance))
-
 cat("\nTop 5 Variables driving Heterogeneity:\n")
 print(head(var_imp_df, 5))
 
@@ -412,148 +467,13 @@ Since the plots didn't show up, we generate a Summary Table that proves the dire
 # Compare effects for Old vs. New Buildings
 # (Using Median split)
 med_age <- median(plot_data$building_age, na.rm = TRUE)
-cat("--- Effect by Building Age ---\n")
+cat("Effect by Building Age\n")
 print(tapply(plot_data$tau_hat, plot_data$building_age > med_age, mean))
 # FALSE = Newer Buildings, TRUE = Older Buildings
 
 # Compare effects for High vs. Low Income
 med_inc <- median(plot_data$income, na.rm = TRUE)
-cat("\n--- Effect by Income ---\n")
+cat("Effect by Income\n")
 print(tapply(plot_data$tau_hat, plot_data$income > med_inc, mean))
 # FALSE = Poorer, TRUE = Richer
-```
-
-The Missing Piece: Energy Costs
-Since we already have the cleaned data and the functions (run_dml_partialling_out and run_dml_iv), 
-getting the results for Energy Costs is very fast. 
-
-It is just a matter of swapping the $Y$ variable.
-This code block will fill the gaps (Tasks 1 & 3 for Costs + Task 2 for Program B Health).
-
-```{r setup, include = FALSE}
-# ---------------------------------------------------------
-# COMPLETING THE ANALYSIS: ENERGY COSTS & HEALTH
-# ---------------------------------------------------------
-
-# 1. Define the Cost Outcome (First Difference)
-# ---------------------------------------------------------
-# We need to create the difference variable for cost if we haven't already
-# (Assuming your dataframe 'dml_data' has 'energy_cost_2023' and 'energy_cost_2018')
-dml_data$dY_cost_2023 <- dml_data$energy_cost_2023 - dml_data$energy_cost_2018
-# 
-# Define Y vector for costs
-Y_cost <- dml_data$dY_cost_2023
-
-# 2. Task 1: Effect of Programs on Energy COSTS
-# ---------------------------------------------------------
-cat("\n--- TASK 1: Program A on Energy COSTS ---\n")
-subset_A <- which(dml_data$program_type %in% c("A", "C"))
-
-# Re-using the function we defined earlier
-res_cost_A <- run_dml_partialling_out(
-  Y = Y_cost[subset_A], 
-  D = D_A[subset_A], 
-  X = X_matrix[subset_A, ]
-)
-print(res_cost_A)
-
-cat("\n--- TASK 1: Program B on Energy COSTS ---\n")
-subset_B <- which(dml_data$program_type %in% c("B", "C"))
-res_cost_B <- run_dml_partialling_out(
-  Y = Y_cost[subset_B], 
-  D = D_B[subset_B], 
-  X = X_matrix[subset_B, ]
-)
-print(res_cost_B)
-
-# 3. Task 3: Effect of Retrofit Itself on Energy COSTS (IV)
-# ---------------------------------------------------------
-cat("\n--- TASK 3: Effect of RETROFIT on COSTS (IV) ---\n")
-# Using Program A as instrument, just like before
-# We use the same subset (A vs C) and same D and Z
-result_iv_cost <- run_dml_iv(
-  Y = Y_cost[subset_A],      # NEW Outcome (Costs)
-  D = D_iv,                  # Same Treatment (Retrofit)
-  Z = Z_iv,                  # Same Instrument (Program A)
-  X = X_iv                   # Same Controls
-)
-print(result_iv_cost)
-
-# 4. Task 2: Program B on Health (Completeness)
-# ---------------------------------------------------------
-cat("\n--- TASK 2: Program B on HEALTH ---\n")
-# We only did A last time. Let's check B.
-Y_health <- dml_data$dY_health_2023
-res_health_B <- run_dml_partialling_out(
-  Y = Y_health[subset_B],
-  D = D_B[subset_B],
-  X = X_matrix[subset_B, ]
-)
-print(res_health_B)
-```
-
-
-The Missing Piece (Sensitivity Analysis):
-
-```{r setup, include = FALSE}
-# ---------------------------------------------------------
-# SENSITIVITY ANALYSIS: DML with Random Forest
-# ---------------------------------------------------------
-# Goal: Check if the effect (-99.8) holds if we use a non-linear 
-# model (Random Forest) to control for confounders instead of Lasso.
-install.packages("randomForest")
-library(randomForest)
-
-# We focus on the main result: Program A on Energy Consumption
-subset_sens <- which(dml_data$program_type %in% c("A", "C"))
-Y_sens <- dml_data$dY_energy_2023[subset_sens]
-D_sens <- dml_data$D_A[subset_sens]
-X_sens <- X_matrix[subset_sens, ]
-
-cat("\n--- SENSITIVITY CHECK: DML with Random Forest ---\n")
-
-# Step 1: RF for Outcome (Y ~ X)
-set.seed(123)
-rf_y <- randomForest(x = X_sens, y = Y_sens, ntree = 100)
-y_hat_rf <- predict(rf_y, X_sens)
-y_resid_rf <- Y_sens - y_hat_rf
-
-# Step 2: RF for Treatment (D ~ X)
-set.seed(123)
-rf_d <- randomForest(x = X_sens, y = D_sens, ntree = 100)
-d_hat_rf <- predict(rf_d, X_sens)
-d_resid_rf <- D_sens - d_hat_rf
-
-# Step 3: OLS on Residuals
-sens_model <- lm(y_resid_rf ~ d_resid_rf)
-print(summary(sens_model))
-
-# COMPARE:
-# If this estimate is similar to your Lasso estimate (-99.8), 
-# you can argue your result is "Robust to functional form assumptions".
-```
-
-
-```{r setup, include = FALSE}
-
-```
-
-
-```{r setup, include = FALSE}
-
-```
-
-
-```{r setup, include = FALSE}
-
-```
-
-
-```{r setup, include = FALSE}
-
-```
-
-
-```{r setup, include = FALSE}
-
 ```
